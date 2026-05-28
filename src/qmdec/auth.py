@@ -89,9 +89,13 @@ def _extract_windows_native() -> dict:
         while addr < 0x7FFFFFFFFFFFFFFF:
             if kernel32.VirtualQueryEx(h_proc, ctypes.c_void_p(addr), ctypes.byref(mbi), ctypes.sizeof(mbi)) == 0:
                 break
-            if (mbi.State == MEM_COMMIT and mbi.Protect in PAGE_READABLE and 0x1000 <= mbi.RegionSize <= 50 * 1024 * 1024):
-                buf = (ctypes.c_char * mbi.RegionSize)()
-                if kernel32.ReadProcessMemory(h_proc, ctypes.c_void_p(mbi.BaseAddress), buf, mbi.RegionSize, ctypes.byref(bytes_read)):
+            region_size = mbi.RegionSize or 0
+            base_addr = mbi.BaseAddress or 0
+            if region_size == 0:
+                break
+            if (mbi.State == MEM_COMMIT and mbi.Protect in PAGE_READABLE and 0x1000 <= region_size <= 50 * 1024 * 1024):
+                buf = (ctypes.c_char * region_size)()
+                if kernel32.ReadProcessMemory(h_proc, ctypes.c_void_p(base_addr), buf, region_size, ctypes.byref(bytes_read)):
                     data = bytes(buf[: bytes_read.value])
                     pos = data.find(COOKIE_MARKER)
                     if pos >= 0:
@@ -99,7 +103,10 @@ def _extract_windows_native() -> dict:
                         parsed = _parse_cookie(raw)
                         if parsed["uin"]:
                             return {"ok": True, **parsed}
-            addr = mbi.BaseAddress + mbi.RegionSize
+            next_addr = base_addr + region_size
+            if next_addr <= addr:
+                break
+            addr = next_addr
 
         return {"ok": False, "error": "Cookie not found in QQMusic memory. Is QQ Music logged in?"}
     finally:
