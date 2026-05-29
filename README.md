@@ -230,6 +230,7 @@ A: 不能. 加密文件只有 VIP 才能下载, ekey 接口也需要 VIP 认证.
 
 ## 致谢
 
+- [GenericAgent](https://github.com/lsdefine/GenericAgent) — 本项目核心开发依仗 GA 提供的 AI 能力
 - [linux.do](https://linux.do) — 社区支持
 
 ## 系统要求
