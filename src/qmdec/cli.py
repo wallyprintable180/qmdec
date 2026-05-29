@@ -69,31 +69,47 @@ def _decrypt_with_ekey(filepath: Path, output_dir: Path, ekey_b64: str,
     if final_key is None:
         return {"ok": False, "error": "key derivation failed", "file": str(filepath)}
 
-    def make_cipher(key):
-        if len(key) > 300:
-            return RC4Cipher(key)
-        return MapCipher(key)
-
-    cipher = make_cipher(final_key)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    preview_cipher = make_cipher(final_key)
+    from .fast_decrypt import decrypt_c
+    use_c = decrypt_c is not None
+
+    # Sniff output format from first 16 bytes
     with open(filepath, "rb") as fin:
         preview = bytearray(fin.read(min(16, audio_size)))
-    preview_cipher.decrypt(preview, 0)
-    ext = sniff_ext(bytes(preview))
+    if use_c:
+        preview_copy = bytearray(preview)
+        if not decrypt_c(final_key, preview_copy, 0):
+            use_c = False
+        else:
+            ext = sniff_ext(bytes(preview_copy))
+    if not use_c:
+        def make_cipher(key):
+            if len(key) > 300:
+                return RC4Cipher(key)
+            return MapCipher(key)
+        preview_cipher = make_cipher(final_key)
+        preview_buf = bytearray(preview)
+        preview_cipher.decrypt(preview_buf, 0)
+        ext = sniff_ext(bytes(preview_buf))
 
     stem = filepath.stem
     out_path = output_dir / f"{stem}{ext}"
 
-    with open(filepath, "rb") as fin, open(out_path, "wb") as fout:
-        offset = 0
-        while offset < audio_size:
-            read_size = min(5120 * 10, audio_size - offset)
-            buf = bytearray(fin.read(read_size))
-            cipher.decrypt(buf, offset)
-            fout.write(buf)
-            offset += read_size
+    if use_c:
+        data = bytearray(open(filepath, "rb").read(audio_size))
+        decrypt_c(final_key, data, 0)
+        out_path.write_bytes(data)
+    else:
+        cipher = make_cipher(final_key)
+        with open(filepath, "rb") as fin, open(out_path, "wb") as fout:
+            offset = 0
+            while offset < audio_size:
+                read_size = min(5120 * 10, audio_size - offset)
+                buf = bytearray(fin.read(read_size))
+                cipher.decrypt(buf, offset)
+                fout.write(buf)
+                offset += read_size
 
     tag_result = None
     if not no_tag and song_mid:
@@ -213,6 +229,105 @@ def cmd_fetch_ekey(args: argparse.Namespace) -> None:
     from .musicex import _fetch_ekey_from_api
     ekey = _fetch_ekey_from_api(args.song_mid, args.file_mid, cookie, uin)
     print(json.dumps({"ok": bool(ekey), "ekey": ekey or "", "length": len(ekey or "")}))
+
+
+def cmd_album(args: argparse.Namespace) -> None:
+    """Download all albums for a singer with concurrent workers."""
+    config = load_config()
+    cookie = config.get("cookie", "")
+    uin = config.get("uin", "")
+    if not cookie:
+        print(json.dumps({"ok": False, "error": "not authenticated. Run: qmdec auth"}))
+        sys.exit(1)
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from .album import get_singer_albums, get_album_songs
+    from .download import get_download_info, download_file
+    from .musicex import _cache_ekey
+
+    output_dir = Path(args.output)
+    quality = args.quality
+    workers = args.workers
+
+    print(f"Fetching albums for {args.singer_mid}...", file=sys.stderr)
+    albums = get_singer_albums(args.singer_mid, cookie, uin)
+    print(f"Found {len(albums)} albums", file=sys.stderr)
+
+    total_ok = total_fail = total_skip = 0
+
+    def _download_one(song, album_dir):
+        out_ext = ".flac" if quality == "flac" else ".mp3"
+        safe_title = song["title"].replace("/", "_").replace("\\", "_").replace(":", "_")
+        final_path = album_dir / f"{safe_title}{out_ext}"
+        if final_path.exists():
+            return {"status": "skip", "title": song["title"]}
+
+        info = get_download_info(song["song_mid"], song["media_mid"], quality, cookie, uin)
+        if not info:
+            return {"status": "fail", "title": song["title"], "error": "no URL"}
+
+        if quality == "flac" and info.get("ekey"):
+            tmp_path = album_dir / f"{safe_title}.mflac"
+            ok = download_file(info["url"], tmp_path)
+            if not ok:
+                tmp_path.unlink(missing_ok=True)
+                return {"status": "fail", "title": song["title"], "error": "download failed"}
+            _cache_ekey(song["song_mid"], info["ekey"])
+            audio_size = tmp_path.stat().st_size
+            result = _decrypt_with_ekey(tmp_path, album_dir, info["ekey"], audio_size,
+                                        song["song_mid"], args.no_tag)
+            tmp_path.unlink(missing_ok=True)
+            if result["ok"]:
+                out_p = Path(result["output"])
+                if out_p.name != final_path.name:
+                    out_p.rename(final_path)
+                return {"status": "ok", "title": song["title"]}
+            return {"status": "fail", "title": song["title"], "error": result.get("error", "decrypt")}
+        else:
+            ok = download_file(info["url"], final_path)
+            if not ok:
+                final_path.unlink(missing_ok=True)
+                return {"status": "fail", "title": song["title"], "error": "download failed"}
+            if not args.no_tag and song.get("song_mid"):
+                try:
+                    from .metadata import write_metadata
+                    write_metadata(final_path, song["song_mid"])
+                except Exception:
+                    pass
+            return {"status": "ok", "title": song["title"]}
+
+    for ai, album in enumerate(albums, 1):
+        safe_album = album["name"].replace("/", "_").replace("\\", "_").replace(":", "_")
+        album_dir = output_dir / safe_album
+        album_dir.mkdir(parents=True, exist_ok=True)
+
+        songs = get_album_songs(album["mid"], cookie, uin)
+        if not songs:
+            print(f"[{ai}/{len(albums)}] {album['name']} - no FLAC songs", file=sys.stderr)
+            continue
+
+        print(f"[{ai}/{len(albums)}] {album['name']} ({len(songs)} songs)", file=sys.stderr)
+        album_ok = album_fail = album_skip = 0
+
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = {ex.submit(_download_one, s, album_dir): s for s in songs}
+            for fut in as_completed(futures):
+                r = fut.result()
+                if r["status"] == "ok":
+                    album_ok += 1
+                elif r["status"] == "skip":
+                    album_skip += 1
+                else:
+                    album_fail += 1
+                    if album_fail <= 3:
+                        print(f"  FAIL: {r['title']}: {r.get('error', '?')}", file=sys.stderr)
+
+        total_ok += album_ok
+        total_fail += album_fail
+        total_skip += album_skip
+        print(f"  -> ok={album_ok} skip={album_skip} fail={album_fail}", file=sys.stderr)
+
+    print(json.dumps({"ok": True, "downloaded": total_ok, "skipped": total_skip, "failed": total_fail}))
 
 
 def cmd_search(args: argparse.Namespace) -> None:
@@ -403,11 +518,19 @@ def main():
     p_ekey.add_argument("song_mid")
     p_ekey.add_argument("file_mid")
 
+    p_album = sub.add_parser("album", help="Download all albums for a singer")
+    p_album.add_argument("singer_mid", help="Singer mid (e.g. 004AlfUb0cVkN1 for BIGBANG)")
+    p_album.add_argument("-o", "--output", required=True, help="Output directory")
+    p_album.add_argument("-q", "--quality", choices=["flac", "320", "128"], default="flac")
+    p_album.add_argument("-w", "--workers", type=int, default=16, help="Concurrent downloads")
+    p_album.add_argument("--no-tag", action="store_true", help="Skip metadata tagging")
+
     args = parser.parse_args()
     commands = {
         "decrypt": cmd_decrypt,
         "search": cmd_search,
         "download": cmd_download,
+        "album": cmd_album,
         "auth": cmd_auth,
         "doctor": cmd_doctor,
         "cache-keys": cmd_cache_keys,
