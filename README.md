@@ -132,8 +132,6 @@ A: No. The encrypted files are only downloadable with VIP, and the ekey API requ
 
 ## Acknowledgments
 
-- [linux.do](https://linux.do) — Community & inspiration
-
 ## License
 
 MIT
@@ -228,13 +226,19 @@ A: 不能. 加密文件只有 VIP 才能下载, ekey 接口也需要 VIP 认证.
 3. **解密** — QMC2 RC4 算法 (与 QQ 音乐客户端内部使用的相同算法)
 4. **写标签** — 从 QQ 音乐公开 API 获取元信息 (无需认证) 写入文件
 
-## 致谢
-
-- [GenericAgent](https://github.com/lsdefine/GenericAgent) — 本项目核心开发依仗 GA 提供的 AI 能力
-- [linux.do](https://linux.do) — 社区支持
-
 ## 系统要求
 
 - Windows 10/11
 - QQ 音乐桌面客户端 (已登录 VIP) — 仅 `auth` 和首次获取密钥时需要
 - 密钥缓存后, 不再需要 QQ 音乐
+
+---
+
+## 致谢
+
+本项目的开发 agent 能力由 [GenericAgent](https://github.com/lsdefine/GenericAgent) 提供。
+
+### 🚩 友情链接
+
+[![GenericAgent](https://img.shields.io/badge/Agent_Framework-GenericAgent-orange?style=for-the-badge&logo=github)](https://github.com/lsdefine/GenericAgent)
+[![LinuxDo](https://img.shields.io/badge/社区-LinuxDo-blue?style=for-the-badge)](https://linux.do/)
