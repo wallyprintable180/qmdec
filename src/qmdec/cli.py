@@ -255,10 +255,12 @@ def cmd_album(args: argparse.Namespace) -> None:
 
     total_ok = total_fail = total_skip = 0
 
-    def _download_one(song, album_dir):
+    def _download_one(song, out_dir):
         out_ext = ".flac" if quality == "flac" else ".mp3"
         safe_title = song["title"].replace("/", "_").replace("\\", "_").replace(":", "_")
-        final_path = album_dir / f"{safe_title}{out_ext}"
+        safe_artist = song["singer"].replace("/", "_").replace("\\", "_").replace(":", "_")
+        filename = f"{safe_artist} - {safe_title}{out_ext}"
+        final_path = out_dir / filename
         if final_path.exists():
             return {"status": "skip", "title": song["title"]}
 
@@ -267,19 +269,20 @@ def cmd_album(args: argparse.Namespace) -> None:
             return {"status": "fail", "title": song["title"], "error": "no URL"}
 
         if quality == "flac" and info.get("ekey"):
-            tmp_path = album_dir / f"{safe_title}.mflac"
+            tmp_path = out_dir / f"{safe_title}.mflac"
             ok = download_file(info["url"], tmp_path)
             if not ok:
                 tmp_path.unlink(missing_ok=True)
                 return {"status": "fail", "title": song["title"], "error": "download failed"}
             _cache_ekey(song["song_mid"], info["ekey"])
             audio_size = tmp_path.stat().st_size
-            result = _decrypt_with_ekey(tmp_path, album_dir, info["ekey"], audio_size,
+            result = _decrypt_with_ekey(tmp_path, out_dir, info["ekey"], audio_size,
                                         song["song_mid"], True)
             tmp_path.unlink(missing_ok=True)
             if result["ok"]:
                 out_p = Path(result["output"])
-                if out_p.name != final_path.name:
+                if out_p != final_path:
+                    final_path.unlink(missing_ok=True)
                     out_p.rename(final_path)
                 if not args.no_tag:
                     try:
@@ -307,10 +310,6 @@ def cmd_album(args: argparse.Namespace) -> None:
             return {"status": "ok", "title": song["title"]}
 
     for ai, album in enumerate(albums, 1):
-        safe_album = album["name"].replace("/", "_").replace("\\", "_").replace(":", "_")
-        album_dir = output_dir / safe_album
-        album_dir.mkdir(parents=True, exist_ok=True)
-
         songs = get_album_songs(album["mid"], cookie, uin)
         if not songs:
             print(f"[{ai}/{len(albums)}] {album['name']} - no FLAC songs", file=sys.stderr)
@@ -319,8 +318,9 @@ def cmd_album(args: argparse.Namespace) -> None:
         print(f"[{ai}/{len(albums)}] {album['name']} ({len(songs)} songs)", file=sys.stderr)
         album_ok = album_fail = album_skip = 0
 
+        output_dir.mkdir(parents=True, exist_ok=True)
         with ThreadPoolExecutor(max_workers=workers) as ex:
-            futures = {ex.submit(_download_one, s, album_dir): s for s in songs}
+            futures = {ex.submit(_download_one, s, output_dir): s for s in songs}
             for fut in as_completed(futures):
                 r = fut.result()
                 if r["status"] == "ok":

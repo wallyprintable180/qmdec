@@ -45,7 +45,8 @@ def search_songs(keyword: str, cookie: str, uin: str, limit: int = 20) -> list[d
     return out
 
 
-def get_download_info(song_mid: str, media_mid: str, quality: str, cookie: str, uin: str) -> dict | None:
+def get_download_info(song_mid: str, media_mid: str, quality: str, cookie: str, uin: str,
+                      _retried: bool = False) -> dict | None:
     """Get download URL and ekey for a song."""
     prefix_map = {"flac": "F0M0", "320": "M800", "128": "M500"}
     ext_map = {"flac": ".mflac", "320": ".mp3", "128": ".mp3"}
@@ -94,6 +95,17 @@ def get_download_info(song_mid: str, media_mid: str, quality: str, cookie: str, 
     ekey = info.get("ekey", "")
 
     if not purl:
+        if not _retried:
+            try:
+                from .auth import extract_cookie_from_process
+                from .cli import load_config, save_config
+                result_auth = extract_cookie_from_process()
+                if result_auth["ok"]:
+                    save_config({"cookie": result_auth["cookie"], "uin": result_auth["uin"]})
+                    return get_download_info(song_mid, media_mid, quality,
+                                            result_auth["cookie"], result_auth["uin"], _retried=True)
+            except Exception:
+                pass
         return None
 
     return {
