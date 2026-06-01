@@ -275,12 +275,20 @@ def cmd_album(args: argparse.Namespace) -> None:
             _cache_ekey(song["song_mid"], info["ekey"])
             audio_size = tmp_path.stat().st_size
             result = _decrypt_with_ekey(tmp_path, album_dir, info["ekey"], audio_size,
-                                        song["song_mid"], args.no_tag)
+                                        song["song_mid"], True)
             tmp_path.unlink(missing_ok=True)
             if result["ok"]:
                 out_p = Path(result["output"])
                 if out_p.name != final_path.name:
                     out_p.rename(final_path)
+                if not args.no_tag:
+                    try:
+                        from .metadata import write_metadata, fetch_metadata_from_album_song
+                        meta = fetch_metadata_from_album_song(song["song_info"])
+                        write_metadata(final_path, song["song_mid"], meta=meta,
+                                       cookie=cookie, uin=uin)
+                    except Exception:
+                        pass
                 return {"status": "ok", "title": song["title"]}
             return {"status": "fail", "title": song["title"], "error": result.get("error", "decrypt")}
         else:
@@ -290,8 +298,10 @@ def cmd_album(args: argparse.Namespace) -> None:
                 return {"status": "fail", "title": song["title"], "error": "download failed"}
             if not args.no_tag and song.get("song_mid"):
                 try:
-                    from .metadata import write_metadata
-                    write_metadata(final_path, song["song_mid"])
+                    from .metadata import write_metadata, fetch_metadata_from_album_song
+                    meta = fetch_metadata_from_album_song(song["song_info"])
+                    write_metadata(final_path, song["song_mid"], meta=meta,
+                                   cookie=cookie, uin=uin)
                 except Exception:
                     pass
             return {"status": "ok", "title": song["title"]}

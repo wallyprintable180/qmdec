@@ -69,6 +69,7 @@ def get_album_songs(album_mid: str, cookie: str, uin: str) -> list[dict]:
                 "singer": "/".join(x.get("title", "") for x in info.get("singer", [])),
                 "song_mid": info.get("mid", ""),
                 "media_mid": file_info.get("media_mid", ""),
+                "song_info": info,
             })
         if len(song_list) < 100:
             break
